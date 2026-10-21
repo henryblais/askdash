@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+data/*.db
+.env
+.venv/
+.DS_Store
+Claude outputs/
+docs/profile-avatar.png

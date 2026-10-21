@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AskDash — talk to your dashboard</title>
+<meta name="description" content="An executive sales dashboard you change by typing plain English. Natural language → SQL → chart, with a safety layer in between.">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f4f1; --surface: #fcfcfb; --surface-2: #efeeea; --border: #dcdbd5;
+    --text: #0b0b0b; --text-2: #52514e; --muted: #8a8984; --accent: #2a78d6; --accent-ink: #fff;
+    --danger: #c43c3b; --ok: #008300;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948;
+    --radius: 12px; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #33332f;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8b8a83; --accent: #3987e5;
+    --danger: #e66767; --ok: #4caf50;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+  }}
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #33332f;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8b8a83; --accent: #3987e5;
+    --danger: #e66767; --ok: #4caf50;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+  a { color: var(--accent); }
+
+  header { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 0 16px; }
+  .topbar { display: flex; align-items: center; gap: 16px; padding: 12px 0; flex-wrap: wrap; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+  .brand span { color: var(--muted); font-size: 13px; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+  .pill.live { border-color: var(--ok); color: var(--ok); }
+  .spacer { flex: 1; }
+  button { font: inherit; cursor: pointer; }
+  .btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 6px 12px; border-radius: 8px; }
+  .btn:hover { background: var(--surface-2); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.primary:disabled { opacity: .55; cursor: wait; }
+
+  /* app shell: dashboard on the left, chat pane on the right */
+  .app { display: flex; min-height: 100vh; }
+  .main { flex: 1; min-width: 0; }
+  .chat { width: 380px; flex: 0 0 380px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column;
+    background: var(--surface); border-left: 1px solid var(--border); }
+  .chat-h { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; }
+  .chat-h small { color: var(--muted); font-weight: 400; }
+  .msgs { flex: 1; overflow-y: auto; padding: 14px 14px 6px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 100%; font-size: 13.5px; line-height: 1.45; animation: rise .2s ease-out; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; border-radius: 14px 14px 4px 14px; max-width: 88%; }
+  .msg.bot { align-self: stretch; background: var(--surface-2); border: 1px solid var(--border); padding: 10px 12px; border-radius: 14px 14px 14px 4px; }
+  .msg.bot.err { border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); }
+  .msg .head { font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .msg .head a { color: var(--accent); text-decoration: none; cursor: pointer; }
+  .msg .head a:hover { text-decoration: underline; }
+  .msg .read { color: var(--text-2); margin-top: 4px; }
+  .msg .read b { color: var(--text); font-weight: 600; }
+  .msg .meta { color: var(--muted); font-size: 11.5px; margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .msg .meta button { border: 0; background: none; color: var(--muted); padding: 0; font-size: 11.5px; text-decoration: underline; }
+  .msg pre { margin: 6px 0 0; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; color: var(--text-2); }
+  .msg.err .head { color: var(--danger); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .chip { font-size: 12.5px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); text-align: left; }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+  .chip::before { content: '↳ '; color: var(--muted); }
+  .thinking { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; padding: 4px 2px; }
+  .thinking .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; }
+  .ask { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--border); }
+  .ask input { flex: 1; font: inherit; font-size: 14px; padding: 10px 12px; border-radius: 10px; min-width: 0;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; }
+  .ask input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+  #btn-chat { display: none; }
+  @media (max-width: 980px) {
+    .chat { position: fixed; right: 0; top: 0; bottom: 0; height: auto; width: 100%; flex-basis: auto; max-width: 420px; z-index: 20;
+      transform: translateX(100%); transition: transform .2s; box-shadow: var(--shadow); }
+    .chat.open { transform: none; }
+    #btn-chat { display: inline-block; }
+  }
+
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; padding: 16px 0 40px; }
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: 1fr; }
+    .brand span, #planner { display: none; }
+  }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+    display: flex; flex-direction: column; min-height: 320px; animation: rise .25s ease-out; }
+  .panel.flash { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px);} }
+  .panel-h { display: flex; align-items: flex-start; gap: 8px; padding: 14px 16px 6px; }
+  .panel-h h2 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
+  .panel-h .explain { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
+  .icon { border: 0; background: transparent; color: var(--muted); padding: 4px 6px; border-radius: 6px; font-size: 12px; }
+  .icon:hover { background: var(--surface-2); color: var(--text); }
+  .icon.on { color: var(--accent); }
+  .panel-b { flex: 1; padding: 4px 12px 12px; position: relative; min-height: 220px; }
+  .panel-b svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .panel-f { display: flex; gap: 10px; padding: 0 16px 10px; font-size: 11.5px; color: var(--muted); }
+  pre.sql { margin: 0; padding: 10px 16px 14px; font: 12px/1.5 var(--mono); color: var(--text-2);
+    background: var(--surface-2); border-top: 1px solid var(--border); white-space: pre-wrap; word-break: break-word;
+    border-radius: 0 0 var(--radius) var(--radius); }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .tbl th, .tbl td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tblwrap { overflow: auto; max-height: 260px; }
+  .kpi { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; gap: 6px; }
+  .kpi .v { font-size: 44px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .kpi .l { color: var(--text-2); font-size: 13px; }
+
+  /* chart primitives */
+  .grid-line { stroke: var(--border); stroke-width: 1; }
+  .axis-text { fill: var(--text-2); font-size: 11px; }
+  .dlabel { fill: var(--text-2); font-size: 11px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); padding: 0 4px 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .tip { position: fixed; pointer-events: none; z-index: 50; background: var(--text); color: var(--bg); font-size: 12px;
+    padding: 6px 9px; border-radius: 6px; box-shadow: var(--shadow); display: none; max-width: 260px; }
+  .tip b { font-weight: 600; }
+
+  .drawer { position: fixed; right: 0; top: 0; bottom: 0; width: 360px; max-width: 92vw; background: var(--surface); border-left: 1px solid var(--border);
+    box-shadow: var(--shadow); transform: translateX(100%); transition: transform .2s; z-index: 20; display: flex; flex-direction: column; }
+  .drawer.open { transform: none; }
+  .drawer h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; display: flex; }
+  .drawer .body { overflow: auto; padding: 12px 16px; font-size: 13px; flex: 1; }
+  .about p { margin: 0 0 10px; color: var(--text-2); }
+  code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+  footer { padding: 24px 0 40px; color: var(--muted); font-size: 12.5px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="app">
+<div class="main">
+<header>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand"><h1>AskDash</h1><span>retail sales · talk to the dashboard</span></div>
+      <span class="pill" id="planner">connecting…</span>
+      <div class="spacer"></div>
+      <button class="btn" id="btn-reset" title="Restore the default panels and clear the conversation">Reset</button>
+      <button class="btn" id="btn-about">How it works</button>
+      <button class="btn" id="btn-theme" title="Toggle theme">◐</button>
+      <button class="btn primary" id="btn-chat">Ask</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid" id="grid"></div>
+</main>
+<footer>Synthetic data · every chart is a real SQL query against a read-only SQLite database · generated SQL is validated before it runs</footer>
+</div><!-- /main -->
+
+<aside class="chat" id="chat">
+  <div class="chat-h">Ask the dashboard <small>· plain English in, charts out</small><span class="spacer"></span><button class="icon" id="btn-chat-close">✕</button></div>
+  <div class="msgs" id="msgs"></div>
+  <form class="ask" id="ask">
+    <input id="q" autocomplete="off" placeholder="e.g. gross margin by category for 2025">
+    <button class="btn primary" id="go" type="submit">Ask</button>
+  </form>
+</aside>
+</div><!-- /app -->
+
+<div class="tip" id="tip"></div>
+<aside class="drawer" id="drawer-about">
+  <h3>How it works <span class="spacer"></span><button class="icon" data-close>✕</button></h3>
+  <div class="body about">
+    <p><b>The problem.</b> Executives want to ask questions of a dashboard, not learn its filters. Every "can you add a view that…" became a ticket.</p>
+    <p><b>The approach.</b> The dashboard state (each panel's title, SQL and chart spec) is sent to an LLM along with a curated schema and your request. The model returns one JSON <em>action</em>: add, replace, remove or answer — with the SQL and a chart spec.</p>
+    <p><b>Safety.</b> Model output is never trusted. SQL passes a static check (single SELECT, deny-listed keywords), then a SQLite <code>authorizer</code> that refuses anything but reads of allow-listed tables, on a read-only connection with a 5s timeout and a 500-row cap. Rate limits and a daily budget protect the API bill.</p>
+    <p><b>Reliability trick.</b> The schema the model sees is a single flattened <code>sales</code> view with revenue, cost and margin precomputed. Fewer joins means far fewer wrong answers.</p>
+    <p><b>Stack.</b> Python (FastAPI or stdlib server), SQLite, Claude via the Anthropic API, and a dependency-free SVG chart renderer in the browser. Click <code>SQL</code> on any panel to see exactly what ran.</p>
+    <p><b>No API key?</b> The server falls back to a rule-based planner so the demo still works end to end (that's what <code>mock</code> in the header means).</p>
+  </div>
+</aside>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const SERIES = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'].map(v => `var(${v})`);
+  const state = { panels: [], history: [], suggestions: [] };
+
+  // ---------- utilities ----------
+  const fmtNum = (v, col = '') => {
+    if (v == null || v === '') return '—';
+    if (typeof v !== 'number') return String(v);
+    const c = col.toLowerCase();
+    if (c.includes('pct') || c.includes('percent') || c.includes('rate')) return v.toFixed(1) + '%';
+    const money = /revenue|margin|cost|value|aov|price|sales|profit/.test(c) && !c.includes('units');
+    const abs = Math.abs(v);
+    let s;
+    if (abs >= 1e9) s = (v / 1e9).toFixed(2) + 'B';
+    else if (abs >= 1e6) s = (v / 1e6).toFixed(2) + 'M';
+    else if (abs >= 1e4) s = (v / 1e3).toFixed(1) + 'K';
+    else s = Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return money ? '$' + s : s;
+  };
+  const fmtAxis = v => { const a = Math.abs(v); return a >= 1e6 ? (v/1e6).toFixed(1).replace(/\.0$/,'') + 'M' : a >= 1e3 ? (v/1e3).toFixed(0) + 'K' : String(Math.round(v)); };
+  const niceTicks = (max, n = 4) => {
+    if (max <= 0) return [0];
+    const raw = max / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw);
+    const ticks = []; for (let t = 0; t <= max + 1e-9; t += step) ticks.push(t);
+    if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
+    return ticks;
+  };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const tip = $('#tip');
+  const showTip = (e, html) => { tip.innerHTML = html; tip.style.display = 'block'; moveTip(e); };
+  const moveTip = e => { const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8); tip.style.left = x + 'px'; tip.style.top = (e.clientY + 14) + 'px'; };
+  const hideTip = () => tip.style.display = 'none';
+
+  // ---------- data shaping ----------
+  // Returns { categories: [...], series: [{name, values[]}] }
+  function shape(data, chart) {
+    const cols = data.columns, rows = data.rows;
+    const xi = cols.indexOf(chart.x), si = chart.series ? cols.indexOf(chart.series) : -1;
+    let ys = (chart.y || []).map(c => cols.indexOf(c)).filter(i => i >= 0);
+    if (!ys.length) ys = cols.map((c, i) => i).filter(i => i !== xi && i !== si && rows.some(r => typeof r[i] === 'number'));
+    const cats = [];
+    const catIdx = new Map();
+    for (const r of rows) { const k = xi >= 0 ? r[xi] : ''; if (!catIdx.has(k)) { catIdx.set(k, cats.length); cats.push(k); } }
+    const series = [];
+    if (si >= 0) {
+      const map = new Map();
+      for (const r of rows) {
+        const name = String(r[si]);
+        if (!map.has(name)) map.set(name, Array(cats.length).fill(null));
+        map.get(name)[catIdx.get(r[xi])] = r[ys[0]];
+      }
+      for (const [name, values] of map) series.push({ name, values });
+    } else {
+      for (const yi of ys) {
+        const values = Array(cats.length).fill(null);
+        for (const r of rows) values[catIdx.get(xi >= 0 ? r[xi] : '')] = r[yi];
+        series.push({ name: cols[yi], values });
+      }
+    }
+    return { categories: cats, series, ycol: cols[ys[0]] || '' };
+  }
+
+  // ---------- renderers (plain SVG) ----------
+  let W = 640, H = 300;   // set per render from the host's real pixel size, so text never stretches
+  function svgEl() { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', `0 0 ${W} ${H}`); s.setAttribute('preserveAspectRatio', 'none'); return s; }
+  function legendEl(series, panelId) {
+    if (series.length < 2) return null;
+    const d = document.createElement('div'); d.className = 'legend';
+    series.slice(0, 8).forEach((s, i) => { d.insertAdjacentHTML('beforeend', `<span><i style="background:${SERIES[i]}"></i>${esc(s.name)}</span>`); });
+    return d;
+  }
+  const PAD = { l: 52, r: 16, t: 12, b: 36 };
+
+  function renderLine(host, sh, ycol, stacked = false) {
+    const svg = svgEl();
+    const { categories: cats, series } = sh;
+    const n = cats.length;
+    const max = Math.max(...series.flatMap(s => s.values.map(v => v || 0)), 0) * 1.05 || 1;
+    const ticks = niceTicks(max);
+    const top = ticks[ticks.length - 1];
+    const x = i => PAD.l + (n === 1 ? (W - PAD.l - PAD.r) / 2 : i * (W - PAD.l - PAD.r) / (n - 1));
+    const y = v => H - PAD.b - (v / top) * (H - PAD.t - PAD.b);
+    let g = '';
+    for (const t of ticks) g += `<line class="grid-line" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(t)}" y2="${y(t)}"/><text class="axis-text" x="${PAD.l - 8}" y="${y(t) + 4}" text-anchor="end">${fmtAxis(t)}</text>`;
+    const step = Math.ceil(n / 8);
+    cats.forEach((c, i) => { if (i % step === 0 || (i === n - 1 && (n - 1) % step >= step / 2)) g += `<text class="axis-text" x="${x(i)}" y="${H - PAD.b + 18}" text-anchor="middle">${esc(c)}</text>`; });
+    series.slice(0, 8).forEach((s, si) => {
+      const pts = s.values.map((v, i) => v == null ? null : [x(i), y(v)]).filter(Boolean);
+      const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+      g += `<path d="${d}" fill="none" stroke="${SERIES[si]}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+    });
+    // hover: vertical crosshair + tooltip
+    g += `<line id="xh" class="grid-line" y1="${PAD.t}" y2="${H - PAD.b}" style="display:none;stroke:var(--muted)"/>`;
+    g += `<rect x="${PAD.l}" y="${PAD.t}" width="${W - PAD.l - PAD.r}" height="${H - PAD.t - PAD.b}" fill="transparent" id="hit"/>`;
+    svg.innerHTML = g;
+    const hit = svg.querySelector('#hit'), xh = svg.querySelector('#xh');
+    hit.addEventListener('mousemove', e => {
+      const r = svg.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width * W;
+      const i = Math.max(0, Math.min(n - 1, Math.round((px - PAD.l) / ((W - PAD.l - PAD.r) / Math.max(1, n - 1)))));
+      xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.style.display = '';
+      const lines = series.slice(0, 8).map((s, si) => `<div><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${SERIES[si]};margin-right:5px"></i>${esc(s.name)}: <b>${fmtNum(s.values[i], ycol)}</b></div>`).join('');
+      showTip(e, `<div><b>${esc(cats[i])}</b></div>${lines}`);
+    });
+    hit.addEventListener('mouseleave', () => { xh.style.display = 'none'; hideTip(); });
+    host.appendChild(svg);
+  }
+
+  function renderBar(host, sh, ycol, { horizontal = false, stacked = false } = {}) {
+    const svg = svgEl();
+    const { categories: cats, series } = sh;
+    const S = series.slice(0, 8), n = cats.length;
+    const totals = cats.map((_, i) => stacked ? S.reduce((a, s) => a + (s.values[i] || 0), 0) : Math.max(...S.map(s => s.values[i] || 0)));
+    const max = Math.max(...totals, 0) * 1.08 || 1;
+    const ticks = niceTicks(max), top = ticks[ticks.length - 1];
+    let g = '';
+    if (horizontal) {
+      const pl = 120, band = (H - PAD.t - PAD.b + 20) / n;
+      const x = v => pl + (v / top) * (W - pl - PAD.r);
+      for (const t of ticks) g += `<line class="grid-line" x1="${x(t)}" x2="${x(t)}" y1="${PAD.t}" y2="${H - PAD.b + 20}"/><text class="axis-text" x="${x(t)}" y="${H - PAD.b + 34}" text-anchor="middle">${fmtAxis(t)}</text>`;
+      cats.forEach((c, i) => {
+        const y0 = PAD.t + i * band, bh = Math.max(4, band * 0.62 / (stacked ? 1 : S.length));
+        const label = String(c).length > 18 ? String(c).slice(0, 17) + '…' : c;
+        g += `<text class="axis-text" x="${pl - 8}" y="${y0 + band / 2 + 4}" text-anchor="end">${esc(label)}</text>`;
+        let acc = 0;
+        S.forEach((s, si) => {
+          const v = s.values[i] || 0;
+          const bx = stacked ? x(acc) : x(0), bw = Math.max(0, x(v) - x(0)), by = stacked ? y0 + band * 0.19 : y0 + band * 0.19 + si * bh;
+          g += `<rect class="bar" data-c="${esc(c)}" data-s="${esc(s.name)}" data-v="${v}" x="${bx + (stacked && acc ? 1 : 0)}" y="${by}" width="${Math.max(0, bw - (stacked ? 1 : 0))}" height="${bh - 2}" rx="3" fill="${SERIES[si]}"/>`;
+          if (!stacked && S.length === 1) g += `<text class="dlabel" x="${bx + bw + 6}" y="${by + bh / 2 + 3}">${fmtNum(v, ycol)}</text>`;
+          acc += v;
+        });
+      });
+    } else {
+      const band = (W - PAD.l - PAD.r) / n;
+      const y = v => H - PAD.b - (v / top) * (H - PAD.t - PAD.b);
+      for (const t of ticks) g += `<line class="grid-line" x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(t)}" y2="${y(t)}"/><text class="axis-text" x="${PAD.l - 8}" y="${y(t) + 4}" text-anchor="end">${fmtAxis(t)}</text>`;
+      const step = Math.ceil(n / 10);
+      cats.forEach((c, i) => {
+        const x0 = PAD.l + i * band, bw = Math.max(3, band * 0.68 / (stacked ? 1 : S.length));
+        if (i % step === 0) { const label = String(c).length > 12 ? String(c).slice(0, 11) + '…' : c; g += `<text class="axis-text" x="${x0 + band / 2}" y="${H - PAD.b + 18}" text-anchor="middle">${esc(label)}</text>`; }
+        let acc = 0;
+        S.forEach((s, si) => {
+          const v = s.values[i] || 0;
+          const bx = stacked ? x0 + band * 0.16 : x0 + band * 0.16 + si * bw;
+          const yt = stacked ? y(acc + v) : y(v), yb = stacked ? y(acc) : y(0);
+          g += `<rect class="bar" data-c="${esc(c)}" data-s="${esc(s.name)}" data-v="${v}" x="${bx}" y="${yt}" width="${bw - 2}" height="${Math.max(0, yb - yt - (stacked && acc ? 1 : 0))}" rx="3" fill="${SERIES[si]}"/>`;
+          if (!stacked && S.length === 1 && n <= 12) g += `<text class="dlabel" x="${bx + (bw - 2) / 2}" y="${yt - 5}" text-anchor="middle">${fmtNum(v, ycol)}</text>`;
+          acc += v;
+        });
+      });
+    }
+    svg.innerHTML = g;
+    svg.querySelectorAll('.bar').forEach(b => {
+      b.addEventListener('mouseenter', e => showTip(e, `<div><b>${esc(b.dataset.c)}</b></div><div>${S.length > 1 ? esc(b.dataset.s) + ': ' : ''}<b>${fmtNum(+b.dataset.v, ycol)}</b></div>`));
+      b.addEventListener('mousemove', moveTip);
+      b.addEventListener('mouseleave', hideTip);
+    });
+    host.appendChild(svg);
+  }
+
+  function renderPie(host, sh, ycol) {
+    const { categories: cats, series } = sh;
+    const vals = series[0].values.map(v => v || 0), total = vals.reduce((a, b) => a + b, 0) || 1;
+    const svg = svgEl(); svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    const R = Math.min(H * 0.4, W * 0.2), r = R * 0.54, cx = Math.max(R + 40, W * 0.28), cy = H / 2, lx0 = cx + R + 50;
+    let a = -Math.PI / 2, g = '';
+    const items = cats.map((c, i) => ({ c, v: vals[i] })).sort((p, q) => q.v - p.v);
+    const shown = items.slice(0, 7); const rest = items.slice(7);
+    if (rest.length) shown.push({ c: 'Other', v: rest.reduce((s, x) => s + x.v, 0) });
+    shown.forEach((it, i) => {
+      const ang = it.v / total * 2 * Math.PI, a2 = a + ang;
+      const p = (rad, t) => [cx + rad * Math.cos(t), cy + rad * Math.sin(t)];
+      const [x1, y1] = p(R, a), [x2, y2] = p(R, a2), [x3, y3] = p(r, a2), [x4, y4] = p(r, a);
+      const big = ang > Math.PI ? 1 : 0;
+      g += `<path class="slice" data-c="${esc(it.c)}" data-v="${it.v}" d="M${x1} ${y1} A${R} ${R} 0 ${big} 1 ${x2} ${y2} L${x3} ${y3} A${r} ${r} 0 ${big} 0 ${x4} ${y4} Z" fill="${SERIES[i]}" stroke="var(--surface)" stroke-width="2"/>`;
+      const mid = a + ang / 2, [lx, ly] = p(R + 18, mid);
+      if (ang > 0.25) g += `<text class="dlabel" x="${lx}" y="${ly + 4}" text-anchor="${Math.cos(mid) < 0 ? 'end' : 'start'}">${(it.v / total * 100).toFixed(0)}%</text>`;
+      a = a2;
+    });
+    g += `<text class="axis-text" x="${cx}" y="${cy - 4}" text-anchor="middle" style="font-size:13px;fill:var(--text)">${fmtNum(total, ycol)}</text><text class="axis-text" x="${cx}" y="${cy + 14}" text-anchor="middle">total</text>`;
+    // legend on the right
+    const ly0 = cy - (shown.length * 26) / 2 + 8;
+    shown.forEach((it, i) => { g += `<rect x="${lx0}" y="${ly0 + i * 26}" width="10" height="10" rx="3" fill="${SERIES[i]}"/><text class="axis-text" x="${lx0 + 18}" y="${ly0 + 9 + i * 26}" style="font-size:12px;fill:var(--text)">${esc(String(it.c).length > 16 ? String(it.c).slice(0, 15) + '…' : it.c)}</text><text class="axis-text" x="${W - 8}" y="${ly0 + 9 + i * 26}" text-anchor="end">${fmtNum(it.v, ycol)}</text>`; });
+    svg.innerHTML = g;
+    svg.querySelectorAll('.slice').forEach(s => {
+      s.addEventListener('mouseenter', e => showTip(e, `<b>${esc(s.dataset.c)}</b><br>${fmtNum(+s.dataset.v, ycol)} · ${(+s.dataset.v / total * 100).toFixed(1)}%`));
+      s.addEventListener('mousemove', moveTip); s.addEventListener('mouseleave', hideTip);
+    });
+    host.appendChild(svg);
+  }
+
+  function renderTable(host, data) {
+    const w = document.createElement('div'); w.className = 'tblwrap';
+    const numCols = data.columns.map((_, i) => data.rows.some(r => typeof r[i] === 'number'));
+    w.innerHTML = `<table class="tbl"><thead><tr>${data.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${
+      data.rows.map(r => `<tr>${r.map((v, i) => `<td class="${numCols[i] ? 'num' : ''}">${esc(fmtNum(v, data.columns[i]))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    host.appendChild(w);
+  }
+
+  function renderKpi(host, data) {
+    const d = document.createElement('div'); d.className = 'kpi';
+    const row = data.rows[0] || [], cols = data.columns;
+    const i = row.findIndex(v => typeof v === 'number');
+    d.innerHTML = `<div class="v">${esc(fmtNum(row[i], cols[i] || ''))}</div><div class="l">${esc((cols[i] || '').replace(/_/g, ' '))}</div>`;
+    host.appendChild(d);
+  }
+
+  function renderChart(host, panel, forceTable = false) {
+    host.innerHTML = '';
+    const { data, chart } = panel;
+    if (!data || !data.rows.length) { host.innerHTML = '<div class="kpi"><div class="l">No rows returned</div></div>'; return; }
+    const type = forceTable ? 'table' : (chart.type || 'bar');
+    if (type === 'table') return renderTable(host, data);
+    if (type === 'kpi') return renderKpi(host, data);
+    const sh = shape(data, chart);
+    if (!sh.series.length) return renderTable(host, data);
+    const lg = legendEl(sh.series); if (lg) host.appendChild(lg);
+    W = Math.max(320, host.clientWidth - 24 || 640);
+    H = Math.max(200, (host.clientHeight || 300) - (lg ? lg.offsetHeight + 8 : 0) - 16);
+    if (type === 'line') return renderLine(host, sh, sh.ycol);
+    if (type === 'pie') return renderPie(host, sh, sh.ycol);
+    if (type === 'hbar') return renderBar(host, sh, sh.ycol, { horizontal: true, stacked: sh.series.length > 1 });
+    if (type === 'stacked_bar') return renderBar(host, sh, sh.ycol, { stacked: true });
+    return renderBar(host, sh, sh.ycol, {});
+  }
+
+  // ---------- panels ----------
+  const grid = $('#grid');
+  function panelEl(p) {
+    const el = document.createElement('section'); el.className = 'panel'; el.dataset.id = p.id;
+    el.innerHTML = `
+      <div class="panel-h">
+        <div style="flex:1"><h2>${esc(p.title)}</h2><p class="explain">${esc(p.explanation || '')}</p></div>
+        <button class="icon" data-act="table" title="Toggle table view">⊞</button>
+        <button class="icon" data-act="sql" title="Show SQL">SQL</button>
+        <button class="icon" data-act="remove" title="Remove panel">✕</button>
+      </div>
+      <div class="panel-b"></div>
+      <div class="panel-f"><span>${p.data.row_count} rows</span><span>${p.data.elapsed_ms} ms</span>${p.source === 'llm' ? '<span>· generated</span>' : ''}${p.data.truncated ? '<span style="color:var(--danger)">· truncated</span>' : ''}</div>
+      <pre class="sql" hidden>${esc(p.data.sql || p.sql)}</pre>`;
+    const body = $('.panel-b', el);
+    requestAnimationFrame(() => renderChart(body, p));   // after insertion, so the host has real dimensions
+    el.addEventListener('click', e => {
+      const b = e.target.closest('[data-act]'); if (!b) return;
+      if (b.dataset.act === 'sql') { const pre = $('pre.sql', el); pre.hidden = !pre.hidden; b.classList.toggle('on', !pre.hidden); }
+      if (b.dataset.act === 'table') { const on = b.classList.toggle('on'); renderChart(body, p, on); }
+      if (b.dataset.act === 'remove') removePanel(p.id);
+    });
+    return el;
+  }
+  function renderAll() {
+    grid.innerHTML = '';
+    state.panels.forEach(p => grid.appendChild(panelEl(p)));
+    save();
+  }
+  function addPanel(p) { state.panels.push(p); const el = panelEl(p); grid.appendChild(el); flash(el); save(); }
+  function replacePanel(id, p) {
+    const i = state.panels.findIndex(x => x.id === id);
+    if (i < 0) return addPanel(p);
+    p.id = id; state.panels[i] = p;
+    const old = grid.querySelector(`[data-id="${id}"]`); const el = panelEl(p);
+    old ? old.replaceWith(el) : grid.appendChild(el); flash(el); save();
+  }
+  function removePanel(id) { state.panels = state.panels.filter(p => p.id !== id); grid.querySelector(`[data-id="${id}"]`)?.remove(); save(); }
+  function flash(el) { el.classList.add('flash'); el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); setTimeout(() => el.classList.remove('flash'), 1600); }
+  let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => grid.querySelectorAll('.panel').forEach(el => { const p = state.panels.find(x => x.id === el.dataset.id); const on = $('[data-act=table]', el).classList.contains('on'); if (p) renderChart($('.panel-b', el), p, on); }), 150); });
+  function save() { try { localStorage.setItem('askdash.panels', JSON.stringify(state.panels)); } catch (_) {} }
+
+  // ---------- chat pane ----------
+  const msgs = $('#msgs'), input = $('#q'), go = $('#go');
+  function scrollChat() { msgs.scrollTop = msgs.scrollHeight; }
+  function chipsHtml(list) { return list && list.length ? `<div class="chips">${list.map(t => `<button type="button" class="chip" data-ask="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''; }
+  function addMsg(m, persist = true) {
+    // m: {role:'user'|'bot', text, kind, head, panelId, read, explain, suggestions, meta, sql, error}
+    const el = document.createElement('div');
+    if (m.role === 'user') { el.className = 'msg user'; el.textContent = m.text; }
+    else {
+      el.className = 'msg bot' + (m.error ? ' err' : '');
+      el.innerHTML = (m.head ? `<div class="head">${m.panelId ? `<a data-jump="${esc(m.panelId)}">${esc(m.head)}</a>` : esc(m.head)}</div>` : '')
+        + (m.read ? `<div class="read">Read as: <b>${esc(m.read)}</b></div>` : '')
+        + (m.explain ? `<div class="read">${esc(m.explain)}</div>` : '')
+        + (m.error ? `<div class="read">${esc(m.error)}</div>` : '')
+        + chipsHtml(m.suggestions)
+        + (m.meta || m.sql ? `<div class="meta">${m.meta ? esc(m.meta) : ''}${m.sql ? `<button type="button" data-sql>SQL</button>` : ''}</div>` : '')
+        + (m.sql ? `<pre hidden>${esc(m.sql)}</pre>` : '');
+    }
+    msgs.appendChild(el); scrollChat();
+    if (persist) { state.history.push(m); saveChat(); }
+  }
+  msgs.addEventListener('click', e => {
+    const chip = e.target.closest('[data-ask]'); if (chip) return ask(chip.dataset.ask);
+    const sq = e.target.closest('[data-sql]'); if (sq) { const pre = sq.closest('.msg').querySelector('pre'); pre.hidden = !pre.hidden; return; }
+    const j = e.target.closest('[data-jump]'); if (j) { const el = grid.querySelector(`[data-id="${j.dataset.jump}"]`); if (el) flash(el); else addMsg({ role: 'bot', head: 'That panel has been removed.' }, false); }
+  });
+  function saveChat() { try { localStorage.setItem('askdash.chat', JSON.stringify(state.history.slice(-60))); } catch (_) {} }
+  function welcome(suggestions) {
+    addMsg({ role: 'bot', head: 'Hi. Ask for any view of the sales data and I\'ll add it to the dashboard, or ask me to change a chart that\'s already there.',
+      explain: 'I\'ll tell you how I read each request so you always know what the numbers are.', suggestions }, true);
+  }
+
+  let thinking = null;
+  async function ask(text) {
+    text = text.trim(); if (!text || go.disabled) return;
+    input.value = ''; go.disabled = true;
+    addMsg({ role: 'user', text });
+    thinking = document.createElement('div'); thinking.className = 'thinking'; thinking.innerHTML = '<span class="dot"></span> Interpreting…'; msgs.appendChild(thinking); scrollChat();
+    const t0 = performance.now();
+    let res;
+    try {
+      const r = await fetch('/api/ask', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ request: text, panels: state.panels.map(({ id, title, sql, chart }) => ({ id, title, sql, chart })),
+          history: state.history.filter(h => h.role === 'user').slice(-5).map(h => ({ request: h.text, action: h.action, title: h.title })) }) });
+      res = await r.json();
+    } catch (e) { res = { ok: false, error: 'Network error: ' + e.message }; }
+    thinking.remove(); go.disabled = false; input.focus();
+    const ms = Math.round(performance.now() - t0);
+    // annotate the user turn so the model sees recent context next time
+    const last = state.history[state.history.length - 1]; if (last && last.role === 'user') { last.action = res.plan?.action || 'error'; last.title = res.plan?.title || ''; }
+    if (!res.ok) { addMsg({ role: 'bot', head: 'Couldn\'t do that', error: res.error || 'Something went wrong.', sql: res.plan?.sql || '' }); return; }
+    const plan = res.plan;
+    if (plan.action === 'clarify') { addMsg({ role: 'bot', head: 'Not sure what to show', explain: plan.explanation, suggestions: plan.suggestions }); return; }
+    if (plan.action === 'remove') { removePanel(plan.panel_id); addMsg({ role: 'bot', head: `Removed “${plan.title}”`, suggestions: plan.suggestions }); return; }
+    if (plan.action === 'replace') replacePanel(plan.panel_id, res.panel); else addPanel(res.panel);
+    const d = res.panel.data;
+    const verb = plan.action === 'replace' ? 'Updated' : plan.action === 'answer' ? 'Answered' : 'Added';
+    const kpi = plan.action === 'answer' && d.rows[0] ? ` → ${fmtNum(d.rows[0].find(v => typeof v === 'number'), d.columns[0])}` : '';
+    addMsg({ role: 'bot', head: `${verb} “${plan.title}”${kpi}`, panelId: res.panel.id, read: plan.interpreted_as || '', explain: plan.explanation,
+      suggestions: plan.suggestions, meta: `${d.row_count} rows · model ${res.llm_ms} ms · total ${ms} ms${res.retried ? ' · self-corrected a SQL error' : ''}${d.truncated ? ' · truncated' : ''}`, sql: d.sql });
+  }
+  $('#ask').addEventListener('submit', e => { e.preventDefault(); ask(input.value); });
+  $('#btn-chat').onclick = () => { $('#chat').classList.add('open'); input.focus(); };
+  $('#btn-chat-close').onclick = () => $('#chat').classList.remove('open');
+
+  // ---------- drawers, theme, chips ----------
+  const toggle = id => { const d = $(id); const open = !d.classList.contains('open'); document.querySelectorAll('.drawer').forEach(x => x.classList.remove('open')); d.classList.toggle('open', open); };
+  $('#btn-about').onclick = () => toggle('#drawer-about');
+  document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('.drawer').classList.remove('open'));
+  $('#btn-theme').onclick = () => {
+    const root = document.documentElement;
+    const dark = root.dataset.theme === 'dark' || (!root.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('askdash.theme', root.dataset.theme); } catch (_) {}
+  };
+  try { const t = localStorage.getItem('askdash.theme'); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+  $('#btn-reset').onclick = () => { try { localStorage.removeItem('askdash.panels'); localStorage.removeItem('askdash.chat'); } catch (_) {} state.history = []; msgs.innerHTML = ''; load(true); };
+
+  // ---------- boot ----------
+  async function load(force = false) {
+    const r = await fetch('/api/dashboard'); const d = await r.json();
+    state.suggestions = d.suggestions;
+    const pl = $('#planner'); pl.textContent = d.planner.startsWith('claude') ? 'LLM: ' + d.planner.split(':')[1] : 'planner: mock (no API key)';
+    pl.classList.toggle('live', d.planner.startsWith('claude'));
+    let saved = null;
+    if (!force) { try { saved = JSON.parse(localStorage.getItem('askdash.panels') || 'null'); } catch (_) {} }
+    state.panels = (saved && saved.length) ? saved : d.panels;
+    renderAll();
+    let chat = null;
+    if (!force) { try { chat = JSON.parse(localStorage.getItem('askdash.chat') || 'null'); } catch (_) {} }
+    if (chat && chat.length) { state.history = chat; chat.forEach(m => addMsg(m, false)); }
+    else welcome(d.suggestions);
+  }
+  load();
+})();
+</script>
+</body>
+</html>

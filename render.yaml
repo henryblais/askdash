@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: askdash
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python backend/generate_data.py
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.0
